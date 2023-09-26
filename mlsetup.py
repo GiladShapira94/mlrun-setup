@@ -1033,8 +1033,6 @@ class K8sConfig(BaseConfig):
         ]
         if admin_install:
             helm_run_cmd += [
-                "--set",
-                f"global.registry.url={registry_url}",
                 "-set",
                 "mpi-operator.rbac.namespaced.create=false",
                 "--set",
