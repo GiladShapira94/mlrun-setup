@@ -38,10 +38,10 @@ valid_registry_args = [
 docker_services = ["jupyter", "milvus", "mysql"]
 k8s_services = ["spark", "monitoring", "jupyter", "pipelines"]
 service_map = {
-    "s": "spark-operator",
-    "m": "kube-prometheus-stack",
-    "j": "jupyterNotebook",
-    "p": "pipelines",
+    "spark": "spark-operator",
+    "monitoring": "kube-prometheus-stack",
+    "jupyter": "jupyterNotebook",
+    "pipelines": "pipelines",
 }
 # auto detect if running inside GitHub Codespaces
 is_codespaces = "CODESPACES" in os.environ and "CODESPACE_NAME" in os.environ
