@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import random
 import re
 import shutil
 import socket
@@ -416,6 +417,11 @@ def remote(url, username, access_key, artifact_path, env_file, env_vars, verbose
     default="",
     help="deploy Jupyter container, can provide jupyter image as argument",
 )
+@click.option(
+    "--admin_install",
+    is_flag=True,
+    help="For installing only k8s resources .e.g crd's, cluster roles.",
+)
 def kubernetes(
     name,
     namespace,
@@ -430,6 +436,7 @@ def kubernetes(
     verbose,
     simulate,
     chart_ver,
+    admin_install,
     jupyter,
 ):
     """Install MLRun service on Kubernetes"""
@@ -839,7 +846,9 @@ class DockerConfig(BaseConfig):
             raise SystemExit(returncode)
 
         print()
-        print(f"MLRun API address:  http://localhost:{port} (internal: http://mlrun-api:{port})")
+        print(
+            f"MLRun API address:  http://localhost:{port} (internal: http://mlrun-api:{port})"
+        )
         print(
             f"MLRun UI address:   http://localhost:{os.environ.get('MLRUN_UI_PORT', '8060')}"
         )
@@ -849,12 +858,18 @@ class DockerConfig(BaseConfig):
         if jupyter:
             print("Jupyter address:    http://localhost:8888")
         if "milvus" in options:
-            print("Milvus API address: http://localhost:19530 (internal: http://milvus:19530)")
-            print("Minio API address:  http://localhost:9000 (internal: http://minio:9000)")
+            print(
+                "Milvus API address: http://localhost:19530 (internal: http://milvus:19530)"
+            )
+            print(
+                "Minio API address:  http://localhost:9000 (internal: http://minio:9000)"
+            )
         if "mysql" in options:
             print(f"MySQL connection str:")
             print(f"  From Containers: {mysql_connection_url}")
-            print(f"  From host:       {mysql_connection_url.replace('sqldb', 'localhost')}")
+            print(
+                f"  From host:       {mysql_connection_url.replace('sqldb', 'localhost')}"
+            )
 
     def stop(self, force=None, cleanup=None):
         compose_file = self.get_env().get("MLRUN_CONF_COMPOSE_PATH", "")
@@ -934,6 +949,7 @@ class K8sConfig(BaseConfig):
         options=None,
         disable=None,
         chart_ver=None,
+        admin_install=None,
         jupyter="",
         **kwargs,
     ):
@@ -1002,7 +1018,6 @@ class K8sConfig(BaseConfig):
         for setting, value in new_settings.items():
             env_settings["MLRUN_CONF_K8S_" + setting] = value
         self.set_env(env_settings)
-
         # run helm to install mlrun
         helm_run_cmd = [
             "helm",
@@ -1016,51 +1031,119 @@ class K8sConfig(BaseConfig):
             "--set",
             f"global.registry.url={registry_url}",
         ]
-        if pull_secret:
-            helm_run_cmd += ["--set", f"global.registry.secretName={pull_secret}"]
-        if push_secret:
+        if admin_install:
             helm_run_cmd += [
                 "--set",
-                f"nuclio.dashboard.kaniko.registryProviderSecretName={push_secret}",
+                f"global.registry.url={registry_url}",
+                "-set",
+                "mpi-operator.rbac.namespaced.create=false",
                 "--set",
-                f"mlrun.defaultDockerRegistrySecretName={push_secret}",
+                "mpi-operator.deployment.create=false",
+                "--set",
+                "mpi-operator.clusterResources.create=false",
+                "--set",
+                "mpi-operator.crd.create=false",
+                "--set",
+                "nuclio.crd.create=true",
+                "--set",
+                "nuclio.autoscaler.enabled=false",
+                "--set",
+                "nuclio.platform=false",
+                "--set",
+                "nuclio.controller.enabled=false",
+                "--set",
+                "global.registry.url=false",
+                "--set",
+                "global.admin_install.enabled=true",
+                "--set",
+                "nuclio.dashboard.enabled=false",
+                "--set",
+                "nuclio.rbac.create=false",
+                "--set",
+                "nuclio.cluster.admin=false",
+                "--set",
+                "pipelines.crd.enabled=true",
+                "--set",
+                "pipelines.enabled=false",
+                "--set",
+                "minio.enabled=false",
+                "--set",
+                "kube-prometheus-stack.enabled=false",
+                "--set",
+                "mlrun.enabled=false",
+                "--set",
+                "spark-operator.enabled=false",
+                "--set",
+                "jupyterNotebook.enabled=false",
+                "--set",
+                "jupyterNotebook.persistence.enabled=false",
             ]
-        if external_addr:
-            helm_run_cmd += ["--set", f"global.externalHostAddress={external_addr}"]
-        if jupyter:
-            tag_jupyter = None
-            if ":" in jupyter:
-                tag_jupyter = jupyter.split(":")[-1]
-                jupyter = jupyter.split(":")[0]
-            logging.info(
-                f'Jupyter container image: {jupyter}:{tag_jupyter or "latest"} '
+        else:
+            helm_run_cmd += [
+                "--set",
+                f"global.registry.url={registry_url}",
+            ]
+            if pull_secret:
+                helm_run_cmd += ["--set", f"global.registry.secretName={pull_secret}"]
+            if push_secret:
+                helm_run_cmd += [
+                    "--set",
+                    f"nuclio.dashboard.kaniko.registryProviderSecretName={push_secret}",
+                    "--set",
+                    f"mlrun.defaultDockerRegistrySecretName={push_secret}",
+                ]
+            if external_addr:
+                helm_run_cmd += ["--set", f"global.externalHostAddress={external_addr}"]
+            if jupyter:
+                tag_jupyter = None
+                if ":" in jupyter:
+                    tag_jupyter = jupyter.split(":")[-1]
+                    jupyter = jupyter.split(":")[0]
+                logging.info(
+                    f'Jupyter container image: {jupyter}:{tag_jupyter or "latest"} '
+                )
+                helm_run_cmd += [
+                    "--set",
+                    f"jupyterNotebook.image.repository={jupyter}",
+                ]
+                helm_run_cmd += [
+                    "--set",
+                    f'jupyterNotebook.image.tag={tag_jupyter if tag_jupyter else "latest"}',
+                ]
+            images_service = (
+                ["mlrun.api", "mlrun.ui", "jupyterNotebook"]
+                if not jupyter
+                else ["mlrun.api", "mlrun.ui"]
             )
-            helm_run_cmd += [
-                "--set",
-                f"jupyterNotebook.image.repository={jupyter}",
-            ]
-            helm_run_cmd += [
-                "--set",
-                f'jupyterNotebook.image.tag={tag_jupyter if tag_jupyter else "latest"}',
-            ]
-        images_service = (
-            ["mlrun.api", "mlrun.ui", "jupyterNotebook"]
-            if not jupyter
-            else ["mlrun.api", "mlrun.ui"]
-        )
-        if tag:
-            for service in images_service:
-                helm_run_cmd += ["--set", f"{service}.image.tag={tag}"]
-        if settings:
-            for setting in settings:
-                helm_run_cmd += ["--set", setting]
-        for opt in service_options:
-            helm_run_cmd += ["--set", opt]
-        if chart_ver:
-            helm_run_cmd += ["--version", chart_ver]
+            if tag:
+                for service in images_service:
+                    helm_run_cmd += ["--set", f"{service}.image.tag={tag}"]
+            if settings:
+                for setting in settings:
+                    helm_run_cmd += ["--set", setting]
+            for opt in service_options:
+                helm_run_cmd += ["--set", opt]
+            if chart_ver:
+                helm_run_cmd += ["--version", chart_ver]
+            if namespace != "mlrun":
+                # Changing services port
+                helm_run_cmd += [
+                    "--set",
+                    f"mlrun.api.service.nodePort={random.randrange(30000,30100)}",
+                    "--set",
+                    f"mlrun.ui.service.nodePort={random.randrange(30000,30100)}",
+                    "--set",
+                    f"global.nuclio.dashboard.nodePort={random.randrange(30000,30100)}",
+                    "--set",
+                    f"jupyterNotebook.service.nodePort={random.randrange(30000,30100)}",
+                    "--set",
+                    f"minio.service.nodePort={random.randrange(30000,30100)}",
+                    "--set",
+                    f"minio.consoleService.nodePort={random.randrange(30000,30100)}",
+                ]
 
-        if self.verbose:
-            helm_run_cmd += ["--debug"]
+            if self.verbose:
+                helm_run_cmd += ["--debug"]
         helm_run_cmd += ["mlrun-ce/mlrun-ce"]
 
         logging.info("Running helm install...")
