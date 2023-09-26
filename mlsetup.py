@@ -1011,13 +1011,14 @@ class K8sConfig(BaseConfig):
         self.set_env(env_settings)
 
         # create or get docker registry settings
-        registry_url, pull_secret, push_secret, new_settings = self.configure_registry(
-            namespace, registry_args
-        )
-        env_settings["MLRUN_CONF_K8S_STAGE"] = K8sStages.registry
-        for setting, value in new_settings.items():
-            env_settings["MLRUN_CONF_K8S_" + setting] = value
-        self.set_env(env_settings)
+        if not admin_install:
+            registry_url, pull_secret, push_secret, new_settings = self.configure_registry(
+                namespace, registry_args
+            )
+            env_settings["MLRUN_CONF_K8S_STAGE"] = K8sStages.registry
+            for setting, value in new_settings.items():
+                env_settings["MLRUN_CONF_K8S_" + setting] = value
+            self.set_env(env_settings)
         # run helm to install mlrun
         helm_run_cmd = [
             "helm",
