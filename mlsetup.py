@@ -418,7 +418,7 @@ def remote(url, username, access_key, artifact_path, env_file, env_vars, verbose
     help="deploy Jupyter container, can provide jupyter image as argument",
 )
 @click.option(
-    "--admin_install",
+    "--admin-install",
     is_flag=True,
     help="For installing only k8s resources .e.g crd's, cluster roles.",
 )
@@ -454,6 +454,7 @@ def kubernetes(
         options,
         disable,
         chart_ver,
+        admin_install,
         jupyter,
     )
 
