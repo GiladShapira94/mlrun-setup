@@ -1030,8 +1030,6 @@ class K8sConfig(BaseConfig):
             "--wait",
             "--timeout",
             "960s",
-            "--set",
-            f"global.registry.url={registry_url}",
         ]
         if admin_install:
             helm_run_cmd += [
