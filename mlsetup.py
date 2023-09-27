@@ -95,13 +95,7 @@ def main():
 )
 @click.pass_context
 def start(
-    ctx,
-    env_vars,
-    env_file,
-    tag,
-    force_local,
-    verbose,
-    simulate,
+    ctx, env_vars, env_file, tag, force_local, verbose, simulate,
 ):
     """Start MLRun service, auto detect the best method (local/docker/k8s/remote)"""
     extra_args = {}
@@ -151,10 +145,7 @@ def start(
     "--deployment", "-d", help="deployment mode: local | docker | kuberenetes"
 )
 @click.option(
-    "--cleanup",
-    "-c",
-    is_flag=True,
-    help="delete the specified or default env file",
+    "--cleanup", "-c", is_flag=True, help="delete the specified or default env file",
 )
 @click.option("--force", "-f", is_flag=True, help="force stop")
 @click.option("--verbose", "-v", is_flag=True, help="verbose log")
@@ -273,13 +264,7 @@ def local(
     """Install MLRun service as a local process (limited, no UI and Nuclio)"""
     config = LocalConfig(env_file, verbose, env_vars_opt=env_vars)
     config.start(
-        data_volume,
-        logs_path,
-        artifact_path,
-        foreground,
-        port,
-        tag,
-        conda_env,
+        data_volume, logs_path, artifact_path, foreground, port, tag, conda_env,
     )
 
 
@@ -420,7 +405,12 @@ def remote(url, username, access_key, artifact_path, env_file, env_vars, verbose
 @click.option(
     "--admin-install",
     is_flag=True,
-    help="For installing only k8s resources .e.g crd's, cluster roles.",
+    help="For installing only cluster level k8s resources .e.g crd's, cluster roles, with cluster admin permissions user.",
+)
+@click.option(
+    "--non-admin-install",
+    is_flag=True,
+    help="For installing mlrun without any cluster level k8s resources .e.g crd's, cluster roles with cluster non admin permissions user.",
 )
 def kubernetes(
     name,
@@ -437,6 +427,7 @@ def kubernetes(
     simulate,
     chart_ver,
     admin_install,
+    non_admin_install,
     jupyter,
 ):
     """Install MLRun service on Kubernetes"""
@@ -455,6 +446,7 @@ def kubernetes(
         disable,
         chart_ver,
         admin_install,
+        non_admin_install,
         jupyter,
     )
 
@@ -951,6 +943,7 @@ class K8sConfig(BaseConfig):
         disable=None,
         chart_ver=None,
         admin_install=None,
+        non_admin_install=None,
         jupyter="",
         **kwargs,
     ):
@@ -1013,9 +1006,12 @@ class K8sConfig(BaseConfig):
 
         # create or get docker registry settings
         if not admin_install:
-            registry_url, pull_secret, push_secret, new_settings = self.configure_registry(
-                namespace, registry_args
-            )
+            (
+                registry_url,
+                pull_secret,
+                push_secret,
+                new_settings,
+            ) = self.configure_registry(namespace, registry_args)
             env_settings["MLRUN_CONF_K8S_STAGE"] = K8sStages.registry
             for setting, value in new_settings.items():
                 env_settings["MLRUN_CONF_K8S_" + setting] = value
@@ -1033,7 +1029,7 @@ class K8sConfig(BaseConfig):
         ]
         if admin_install:
             helm_run_cmd += [
-                "-set",
+                "--set",
                 "mpi-operator.rbac.namespaced.create=false",
                 "--set",
                 "mpi-operator.deployment.create=false",
@@ -1123,6 +1119,26 @@ class K8sConfig(BaseConfig):
                 helm_run_cmd += ["--set", opt]
             if chart_ver:
                 helm_run_cmd += ["--version", chart_ver]
+            if non_admin_install:
+                helm_run_cmd += [
+                    "--set",
+                    "mpi-operator.rbac.namespaced.create=false",
+                    "--set",
+                    "mpi-operator.deployment.create=false",
+                    "--set",
+                    "mpi-operator.clusterResources.create=false",
+                    "--set",
+                    "mpi-operator.rbac.clusterResources.create=false",
+                    "--set",
+                    "mpi-operator.crd.create=false",
+                    "--set",
+                    "nuclio.crd.create=false",
+                    "--set",
+                    "nuclio.cluster.admin=false",
+                    "--set",
+                    "pipelines.crd.enabled=false",
+                ]
+
             if namespace != "mlrun":
                 # Changing services port
                 helm_run_cmd += [
@@ -1148,15 +1164,15 @@ class K8sConfig(BaseConfig):
         returncode, _, _ = self.do_popen(helm_run_cmd)
         if returncode != 0:
             raise SystemExit(returncode)
-
-        dbpath = f"http://{external_addr or 'localhost'}:{30070}"
-        env_settings["MLRUN_CONF_K8S_STAGE"] = K8sStages.done
-        env_settings["MLRUN_DBPATH"] = dbpath
-        print(
-            "configure your mlrun client environment to use the installed service:\n"
-            f"mlrun config set -a {dbpath}"
-        )
-        self.set_env(env_settings)
+        if not admin_install:
+            dbpath = f"http://{external_addr or 'localhost'}:{30070}"
+            env_settings["MLRUN_CONF_K8S_STAGE"] = K8sStages.done
+            env_settings["MLRUN_DBPATH"] = dbpath
+            print(
+                "configure your mlrun client environment to use the installed service:\n"
+                f"mlrun config set -a {dbpath}"
+            )
+            self.set_env(env_settings)
 
     @staticmethod
     def parse_services(include, enable):
